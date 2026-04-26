@@ -19,6 +19,26 @@ To create a production build:
 npm run build
 ```
 
+## C++ Implementation
+
+This project also includes a standalone C++ version of the scheduling logic:
+
+```bash
+cd cpp
+g++ scheduler.cpp -o scheduler
+./scheduler
+```
+
+On Windows PowerShell, run:
+
+```powershell
+cd cpp
+g++ scheduler.cpp -o scheduler.exe
+.\scheduler.exe
+```
+
+The C++ program demonstrates graph validation, topological ordering, greedy scheduling, dynamic programming optimization, metrics calculation, and session packing.
+
 ## Features
 
 - Shows sample project tasks with cognitive load, priority, duration, category, and dependencies.
