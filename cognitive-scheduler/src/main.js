@@ -8,13 +8,14 @@ import { cognitiveSessions, sampleTasks } from './data/tasks.js'
 const state = {
   strategy: 'compare',
   totalCapacity: 36,
+  tasks: sampleTasks.map((task) => ({ ...task, dependencies: [...task.dependencies] })),
 }
 
 const app = document.querySelector('#app')
 
 function runSchedulers() {
-  const greedy = runGreedyScheduler(sampleTasks, state.totalCapacity)
-  const optimized = runDpScheduler(sampleTasks, state.totalCapacity)
+  const greedy = runGreedyScheduler(state.tasks, state.totalCapacity)
+  const optimized = runDpScheduler(state.tasks, state.totalCapacity)
   const selected = state.strategy === 'greedy' ? greedy : optimized
 
   return {
@@ -24,12 +25,66 @@ function runSchedulers() {
   }
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function createTaskId(title) {
+  const base =
+    title
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || `task-${Date.now()}`
+  let candidate = base
+  let suffix = 2
+
+  while (state.tasks.some((task) => task.id === candidate)) {
+    candidate = `${base}-${suffix}`
+    suffix += 1
+  }
+
+  return candidate
+}
+
+function addTask(formData) {
+  const title = formData.get('title').trim()
+  if (!title) return
+
+  const task = {
+    id: createTaskId(title),
+    title,
+    category: formData.get('category').trim() || 'Personal',
+    difficulty: Number(formData.get('difficulty')),
+    cognitiveLoad: Number(formData.get('cognitiveLoad')),
+    duration: Number(formData.get('duration')),
+    priority: Number(formData.get('priority')),
+    dependencies: formData.getAll('dependencies'),
+  }
+
+  state.tasks = [...state.tasks, task]
+}
+
+function deleteTask(taskId) {
+  state.tasks = state.tasks
+    .filter((task) => task.id !== taskId)
+    .map((task) => ({
+      ...task,
+      dependencies: task.dependencies.filter((dependencyId) => dependencyId !== taskId),
+    }))
+}
+
 function renderMetric(label, value, helper = '') {
   return `
     <div class="metric">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      ${helper ? `<small>${helper}</small>` : ''}
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${helper ? `<small>${escapeHtml(helper)}</small>` : ''}
     </div>
   `
 }
@@ -46,6 +101,7 @@ function renderTaskTable(tasks) {
             <th>Priority</th>
             <th>Duration</th>
             <th>Dependencies</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -54,14 +110,19 @@ function renderTaskTable(tasks) {
               (task) => `
                 <tr>
                   <td>
-                    <strong>${task.title}</strong>
-                    <span>${task.id}</span>
+                    <strong>${escapeHtml(task.title)}</strong>
+                    <span>${escapeHtml(task.id)}</span>
                   </td>
-                  <td>${task.category}</td>
+                  <td>${escapeHtml(task.category)}</td>
                   <td>${task.cognitiveLoad}</td>
                   <td>${task.priority}</td>
                   <td>${task.duration} min</td>
-                  <td>${formatDependencyList(task)}</td>
+                  <td>${escapeHtml(formatDependencyList(task))}</td>
+                  <td>
+                    <button class="icon-button danger" type="button" data-delete-task="${escapeHtml(task.id)}" title="Delete task">
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               `,
             )
@@ -69,6 +130,55 @@ function renderTaskTable(tasks) {
         </tbody>
       </table>
     </div>
+  `
+}
+
+function renderTaskForm() {
+  return `
+    <section class="panel task-editor">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Add your own task</p>
+          <h2>Daily task input</h2>
+        </div>
+      </div>
+
+      <form id="task-form" class="task-form">
+        <label>
+          Task name
+          <input name="title" type="text" placeholder="Example: Call friend" required />
+        </label>
+        <label>
+          Category
+          <input name="category" type="text" placeholder="Personal" value="Personal" />
+        </label>
+        <label>
+          Difficulty
+          <input name="difficulty" type="number" min="1" max="5" value="3" />
+        </label>
+        <label>
+          Cognitive load
+          <input name="cognitiveLoad" type="number" min="1" max="10" value="4" />
+        </label>
+        <label>
+          Duration
+          <input name="duration" type="number" min="5" max="240" step="5" value="30" />
+        </label>
+        <label>
+          Priority
+          <input name="priority" type="number" min="1" max="10" value="6" />
+        </label>
+        <label class="dependency-field">
+          Dependencies
+          <select name="dependencies" multiple>
+            ${state.tasks
+              .map((task) => `<option value="${escapeHtml(task.id)}">${escapeHtml(task.title)}</option>`)
+              .join('')}
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Add task</button>
+      </form>
+    </section>
   `
 }
 
@@ -101,8 +211,8 @@ function renderSchedule(result) {
                     <li>
                       <span>${index + 1}</span>
                       <div>
-                        <strong>${task.title}</strong>
-                        <p>${task.category} | load ${task.cognitiveLoad} | priority ${task.priority}</p>
+                        <strong>${escapeHtml(task.title)}</strong>
+                        <p>${escapeHtml(task.category)} | load ${task.cognitiveLoad} | priority ${task.priority}</p>
                       </div>
                     </li>
                   `,
@@ -124,7 +234,7 @@ function renderSchedule(result) {
                 <ul>
                   ${
                     session.tasks.length
-                      ? session.tasks.map((task) => `<li>${task.title}</li>`).join('')
+                      ? session.tasks.map((task) => `<li>${escapeHtml(task.title)}</li>`).join('')
                       : '<li>No task assigned</li>'
                   }
                 </ul>
@@ -137,14 +247,14 @@ function renderSchedule(result) {
       ${
         result.skipped.length
           ? `<p class="note">Skipped because of capacity or dependency constraints: ${result.skipped
-              .map((task) => task.title)
+              .map((task) => escapeHtml(task.title))
               .join(', ')}.</p>`
           : '<p class="note">All tasks fit inside the selected cognitive budget.</p>'
       }
       ${
         packed.overflow.length
           ? `<p class="note warning-note">Scheduled but not placed in a session because of session time limits: ${packed.overflow
-              .map((task) => task.title)
+              .map((task) => escapeHtml(task.title))
               .join(', ')}.</p>`
           : ''
       }
@@ -167,14 +277,14 @@ function renderComparison(greedy, optimized) {
           .map(
             (result) => `
               <article class="comparison-card">
-                <h3>${result.strategy}</h3>
+                <h3>${escapeHtml(result.strategy)}</h3>
                 <div class="compact-metrics">
                   ${renderMetric('Tasks', result.metrics.taskCount)}
                   ${renderMetric('Load', result.metrics.cognitiveLoad)}
                   ${renderMetric('Penalty', result.metrics.switchingPenalty)}
                   ${renderMetric('Score', result.metrics.efficiency)}
                 </div>
-                <p>${result.explanation[0] || 'Schedule generated from deterministic DAA rules.'}</p>
+                <p>${escapeHtml(result.explanation[0] || 'Schedule generated from deterministic DAA rules.')}</p>
               </article>
             `,
           )
@@ -214,7 +324,7 @@ function render() {
         <h1>Cognitive Load-Aware Task Scheduling System</h1>
         <p class="hero-copy">
           A deterministic scheduler that treats mental energy as a limited resource and uses classical
-          data structures and algorithms to produce explainable task plans.
+          data structures and algorithms to produce explainable everyday task plans.
         </p>
       </div>
       <div class="hero-visual" aria-label="Algorithm concept diagram">
@@ -228,16 +338,17 @@ function render() {
 
     <main>
       ${renderControls()}
+      ${renderTaskForm()}
 
       <section class="panel">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Input data</p>
-            <h2>Tasks, dependencies, and cognitive cost</h2>
+            <h2>Daily tasks, dependencies, and cognitive cost</h2>
           </div>
-          <span class="status-pill">${sampleTasks.length} tasks</span>
+          <span class="status-pill">${state.tasks.length} tasks</span>
         </div>
-        ${renderTaskTable(sampleTasks)}
+        ${renderTaskTable(state.tasks)}
       </section>
 
       ${renderSchedule(selected)}
@@ -266,6 +377,19 @@ function render() {
   document.querySelector('#capacity').addEventListener('input', (event) => {
     state.totalCapacity = Number(event.target.value)
     render()
+  })
+
+  document.querySelector('#task-form').addEventListener('submit', (event) => {
+    event.preventDefault()
+    addTask(new FormData(event.currentTarget))
+    render()
+  })
+
+  document.querySelectorAll('[data-delete-task]').forEach((button) => {
+    button.addEventListener('click', () => {
+      deleteTask(button.dataset.deleteTask)
+      render()
+    })
   })
 }
 
